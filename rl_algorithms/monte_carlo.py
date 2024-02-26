@@ -10,7 +10,6 @@
 # Q*(s, a) <- Q(s, a)
 # pi* <- pi
 
-import gym
 import numpy as np
 import time
 
@@ -44,13 +43,18 @@ class MCControl:
         self.epsilon = epsilon
         self.gamma = gamma 
     
-    def run_mc_control(self, num_episodes, verbose=True):
-        self.init_agent()
+    def run_mc_control(self, num_episodes, policy=None, verbose=True):
+        if policy is None:
+            self.init_agent()
+        else:
+            self.policy = policy
+            
+        #self.init_agent()
         rewards_per_episode = np.array([None] * num_episodes)
         episode_len = np.array([None] * num_episodes)
 
         for episode in range(num_episodes):
-            state_action_reward = self.generate_episode(self.policy)
+            state_action_reward = self.generate_episode(policy)
             G = self.calculate_returns(state_action_reward)
             self.evaluate_policy(G)
             self.improve_policy()
@@ -80,33 +84,42 @@ class MCControl:
             for action in range(self.num_actions):
                 self.Q[state][action] = 0
                 self.visit_count[state][action] = 0
+        
+        
 
     def generate_episode(self, policy):
-        G = 0
-        s = self.env.reset()
-        #print(s)
-        a = policy[s[G]]
-        #print(a)
-
-        state_action_reward = [(s, a, 0)]
-        while True:
-            #print(self.env.step(a))
-            state, reward, terminated, _, _= self.env.step(a)
-            if terminated:
-                state_action_reward.append((state, None, reward))
-                break
-            else:
-                a = policy[s[G]]
+        self.env.reset()
+        s = self.env.env.s
+        if policy is not None:  # Ensure policy is not None
+            a = policy[s]
+            state_action_reward = [(s, a, 0)]
+            while True:
+                state, reward, terminated, _, _ = self.env.step(a)
+                if terminated:
+                    state_action_reward.append((state, None, reward))
+                    break
+                else:
+                    a = policy[s]
+                    state_action_reward.append((state, a, reward))
+        else:
+            # If policy is None, take random actions
+            state_action_reward = []
+            while True:
+                a = np.random.randint(self.num_actions)
+                state, reward, terminated, _, _ = self.env.step(a)
                 state_action_reward.append((state, a, reward))
-        
+                if terminated:
+                    break
+
         return state_action_reward
     
     def calculate_returns(self, state_action_reward):
         G = {}
         t = 0
+
         for state, action, reward in state_action_reward:
             if state not in G:
-                G[state] = {action: 0}
+                G[state] = {}
             else: 
                 if action not in G[state]:
                     G[state][action] = 0
@@ -158,23 +171,37 @@ class MCControl:
     
         return np.random.randint(0, self.num_actions)
 
+
 import numpy as np
+import gym
+from matplotlib import pyplot as plt
+
+# Initialize our frozen lake environment from frozen_lake.py
+environment = gym.make('FrozenLake-v1', desc=None, map_name="4x4", is_slippery=False, render_mode="human")
+
+# Reset our environment
+environment.reset()
 
 np.random.seed(1)
 
 epsilon = 0.8
 gamma = 1.0
-n_episodes = 1000
+n_episodes = 500
 
-env = gym.make('FrozenLake-v1', desc=["SFFH", "FHFF", "FFFH", "FHFG"], map_name="4x4", is_slippery=False)
-num_states = env.observation_space.n
-num_actions = env.action_space.n
+num_states = environment.observation_space.n
+num_actions = environment.action_space.n
 
-mc_model = MCControl(env, num_states, num_actions, epsilon, gamma)
+mc_model = MCControl(environment, num_states, num_actions, epsilon, gamma)
 
-Q, policy, _, _ = mc_model.run_mc_control(n_episodes)
+Q, policy, rewards_per_episode, _ = mc_model.run_mc_control(n_episodes, policy=None, verbose=True)
 
-
+# Plot rewards per episode
+plt.plot(rewards_per_episode)
+plt.title('Rewards per Episode')
+plt.xlabel('Episode')
+plt.ylabel('Total Reward')
+plt.grid(True)
+plt.show()
 
 
 
