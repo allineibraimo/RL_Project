@@ -45,6 +45,7 @@ class MCControl:
         self.gamma = gamma 
     
     def run_mc_control(self, num_episodes, verbose=True):
+        self.init_agent()
         rewards_per_episode = np.array([None] * num_episodes)
         episode_len = np.array([None] * num_episodes)
 
