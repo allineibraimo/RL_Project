@@ -2,7 +2,7 @@ import gymnasium as gym
 
 MAX_ITERATIONS = 100    #changeable
 
-env = gym.make('FrozenLake-v1', desc=["SFFH", "FHFF", "FFFH", "FHFG"], map_name="4x4", is_slippery=False)
+env = gym.make('FrozenLake-v1', desc=["SFFH", "FHFF", "FFFH", "FHFG"], map_name="4x4", is_slippery=False, render_mode="human")
 env.reset()
 # render the environment
 env.render()
