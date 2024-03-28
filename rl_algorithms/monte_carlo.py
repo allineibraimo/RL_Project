@@ -1,180 +1,96 @@
-# monte carlo pseudocode
-# for all s in S and a in A
-# Q(s, a) <- arbitrary
-# pi(s) <- arbitrary
-# repeat for n_episodes :
-# generate episode following e-greedy policy
-# Q(s, a) <- evaluate policy using first-visit MC method
-# pi <- improve policy greedily
-
-# Q*(s, a) <- Q(s, a)
-# pi* <- pi
 
 import numpy as np
-import time
-
-# for testing purposes -
-def render_single(env, policy, max_steps=100):
-    # Renders policy for an enivronment
-
-    episode_reward = 0
-    ob = env.reset()
-    for t in range(max_steps):
-        env.render()
-        time.sleep(0.25)
-        a = policy[ob]
-        ob, reward, done, _ = env.step(a)
-        episode_reward += reward
-        if done:
-            break
-    env.render()
-    if not done:
-        print("The agent didn't reach a terminal state in {} steps.".format(max_steps))
-    else:
-        print("Episode reward: %f" % episode_reward)
 
 # initialize agente especial
 
 class MCControl:
-    def __init__(self, env, num_states, num_actions, epsilon, gamma):
+    #initialize all the parameters of the mc control
+    def __init__(self, env, epsilon, gamma):
         self.env = env
-        self.num_states = num_states
-        self.num_actions = num_actions
         self.epsilon = epsilon
         self.gamma = gamma 
-    
-    def run_mc_control(self, num_episodes, policy=None, verbose=True):
-        if policy is None:
-            self.init_agent()
-        else:
-            self.policy = policy
-            
-        #self.init_agent()
-        rewards_per_episode = np.array([None] * num_episodes)
-        episode_len = np.array([None] * num_episodes)
-
-        for episode in range(num_episodes):
-            state_action_reward = self.generate_episode(policy)
-            G = self.calculate_returns(state_action_reward)
-            self.evaluate_policy(G)
-            self.improve_policy()
-
-            total_return = 0
-            for _, _, reward in state_action_reward:
-                total_return += reward
-            rewards_per_episode[episode] = total_return
-            episode_len = len(state_action_reward)
-
-        # Once training is finished, calculate final policy using argmax approach
-        final_policy = self.argmax(self.Q, self.policy)
-
-        if verbose:
-            print(f"Finished training agent in {num_episodes} episodes")
-
-        return self.Q, final_policy, rewards_per_episode, episode_len
-    
-    def init_agent(self):
-        self.policy = np.random.choice(self.num_actions, self.num_states)
         self.Q = {}
-        self.visit_count = {}
-
-        for state in range(self.num_states):
-            self.Q[state] = {}
-            self.visit_count[state] = {}
-            for action in range(self.num_actions):
-                self.Q[state][action] = 0
-                self.visit_count[state][action] = 0
+        self.policy = {}
+        self.returns = {}  # Used to keep track of returns for state-action pairs
+        self.num_actions = env.action_space.n
+        self.num_states = env.observation_space.n
         
-        
-
-    def generate_episode(self, policy):
-        self.env.reset()
-        s = self.env.env.s
-        if policy is not None:  # Ensure policy is not None
-            a = policy[s]
-            state_action_reward = [(s, a, 0)]
-            while True:
-                state, reward, terminated, _, _ = self.env.step(a)
-                if terminated:
-                    state_action_reward.append((state, None, reward))
-                    break
-                else:
-                    a = policy[s]
-                    state_action_reward.append((state, a, reward))
-        else:
-            # If policy is None, take random actions
-            state_action_reward = []
-            while True:
-                a = np.random.randint(self.num_actions)
-                state, reward, terminated, _, _ = self.env.step(a)
-                state_action_reward.append((state, a, reward))
-                if terminated:
-                    break
-
-        return state_action_reward
+        for s in range(self.num_states):
+            self.Q[s] = {}
+            self.returns[s] = {}
+            self.policy[s] = np.ones(self.num_actions, dtype=float) / self.num_actions
+            for a in range(self.num_actions):
+                self.Q[s][a] = 0.0
+                self.returns[s][a] = []
     
-    def calculate_returns(self, state_action_reward):
-        G = {}
-        t = 0
+    # randomly choose actions according to state in policy and
+    def choose_action(self, state):
+        action_probabilities = self.policy[state]
+        action = np.random.choice(self.num_actions, p=action_probabilities)
+        return action
+        
 
-        for state, action, reward in state_action_reward:
-            if state not in G:
-                G[state] = {}
-            else: 
-                if action not in G[state]:
-                    G[state][action] = 0
+    def generate_episode(self):
+        episode = []
+        state, _ = self.env.reset()
+        for t in range(50):
+            action = self.choose_action(state)
+            # print(self.env.step(action))
+            next_state, reward, done, _ , _= self.env.step(action)
+            episode.append((state, action, reward))
+            if done:
+                break
+            state = next_state
+        return episode
+    
+    
+    def run(self, num_episodes, verbose=True):
+        rewards_per_episode = np.zeros(num_episodes)
+        decay_rate = 0.999
+        min_epsilon = 0.1
+        for episode_num in range(1, num_episodes + 1):
+            # Decay epsilon over episodes
+            self.epsilon = max(self.epsilon * decay_rate, min_epsilon)
+            episode = self.generate_episode()
+            G = 0
+            visited_state_action_pairs = set()
             
-            for s in G.keys():
-                for a in G[s].keys():
-                    G[s][a] += reward * self.gamma ** t
+            for state, action, reward in reversed(episode):
+                if (state, action) not in visited_state_action_pairs:
+                    visited_state_action_pairs.add((state, action))
+                    G = self.gamma * G + reward
+                    self.returns[state][action].append(G)
+                    # Average the returns for state-action pair
+                    self.Q[state][action] = np.mean(self.returns[state][action])
+                    # Update the policy to be epsilon-greedy
+                    for state in range(self.num_states):
+                        A_star = np.argmax([self.Q[state][a] for a in range(self.num_actions)])
+                        action_probabilities = np.ones(self.num_actions) * self.epsilon / self.num_actions
+                        action_probabilities[A_star] += (1.0 - self.epsilon)
+                        self.policy[state] = action_probabilities
+                        for a in range(self.num_actions):
+                            if a == A_star:
+                                self.policy[state][a] = (1 - self.epsilon) + (self.epsilon / self.num_actions)
+                            else:
+                                self.policy[state][a] = (self.epsilon / self.num_actions)
 
-            t += 1
-        
-        return G
-    
-    def evaluate_policy(self, G):
-        for state in G.keys():
-            for action in G[state].keys():
-                if action:
-                    self.visit_count[state][action] += 1
-                    #update Q state and pair - use incremental mean approach to update action value function Q(s,a) after each episode: N(s, a) = N(s, a) + 1
-                    # -> Q(s,a) = Q(s,a) + (1 / N(s,a))(G_t - Q(s,a))
-                    temp = G[state][action] - self.Q[state][action]
-                    self.Q[state][action] += temp / self.visit_count[state][action]
+            # Calculate total reward from the episode
+            rewards_per_episode[episode_num - 1] = sum([r for _, _, r in episode])
+            
+                                    
+            if verbose and episode_num % 10 == 0:  # Print every 10 episodes
+                print(f"Episode {episode_num}/{num_episodes} complete.")
 
+        # Once training is finished, convert Q to deterministic policy
+        final_policy = {s: np.argmax([self.Q[s][a] for a in range(self.num_actions)]) for s in range(self.num_states)}
 
-    def improve_policy(self):
-        self.policy = self.argmax(self.Q, self.policy)
-        for state in range(self.num_states):
-            self.policy[state] = self.epsilon_greedy_action(self.policy[state])
-
-
-    def argmax(self, Q, policy):
-        next_policy = policy
-
-        for state in range(self.num_states):
-            best_action = None
-            best_value = float('-inf')
-            for action, value in Q[state].items():
-                if value > best_value:
-                    best_value = value
-                    best_action = action
-            next_policy[state] = best_action
-
-        return next_policy
-    
-    def epsilon_greedy_action(self, greedy_action):
-        temp = np.random.random()
-
-        if temp < 1 - self.epsilon:
-            return greedy_action
-    
-        return np.random.randint(0, self.num_actions)
+        return final_policy, self.Q, rewards_per_episode
 
 
 import numpy as np
 import gym
 from matplotlib import pyplot as plt
+import expectedsarsa
 
 # Initialize our frozen lake environment from frozen_lake.py
 environment = gym.make('FrozenLake-v1', desc=None, map_name="4x4", is_slippery=False, render_mode="human")
@@ -182,27 +98,52 @@ environment = gym.make('FrozenLake-v1', desc=None, map_name="4x4", is_slippery=F
 # Reset our environment
 environment.reset()
 
-np.random.seed(1)
+epsilon = 1.0
+gamma = 0.9
+n_episodes = 1000
 
-epsilon = 0.8
-gamma = 1.0
-n_episodes = 500
+alpha = 0.5
 
-num_states = environment.observation_space.n
-num_actions = environment.action_space.n
+mc_model = MCControl(environment, epsilon, gamma)
+ex_sarsa_model = expectedsarsa.ExpectedSarsaAgent(environment.observation_space.n, environment.action_space.n, epsilon, alpha, gamma)
 
-mc_model = MCControl(environment, num_states, num_actions, epsilon, gamma)
+plt.figure(figsize=(12, 8))
 
-Q, policy, rewards_per_episode, _ = mc_model.run_mc_control(n_episodes, policy=None, verbose=True)
+Q, policy, rewards_per_episode_mc = mc_model.run(n_episodes, verbose=True)
+cumulative_rew_mc = np.cumsum(rewards_per_episode_mc)
+plt.plot(cumulative_rew_mc, label='First Visit Monte Carlo', color='green')
+Q, rewards_per_episode_exsars = ex_sarsa_model.train(environment, n_episodes)
+cumulative_rew_expsar = np.cumsum(rewards_per_episode_exsars)
+plt.plot(cumulative_rew_expsar, label='Expected SARSA', color='blue')
 
 # Plot rewards per episode
-plt.plot(rewards_per_episode)
-plt.title('Rewards per Episode')
-plt.xlabel('Episode')
-plt.ylabel('Total Reward')
+# plt.plot(rewards_per_episode)
+# plt.title('Rewards per Episode')
+# plt.xlabel('Episode')
+# plt.ylabel('Total Reward')
+# plt.grid(True)
+# plt.show()
+
+plt.xlabel('Episodes')
+plt.ylabel('Cumulative Reward')
+plt.title('Cumulative Reward Per Episode Comparison')
+plt.legend()
 plt.grid(True)
+plt.savefig('Monte_Carlo_vs_Expected_SARSA.png')
 plt.show()
 
+mean_rewards_mc = np.mean(rewards_per_episode_mc)
+variance_rewards_mc = np.var(rewards_per_episode_mc)
+
+mean_rewards_exsarsa = np.mean(rewards_per_episode_exsars)
+variance_rewards_exsarsa = np.var(rewards_per_episode_exsars)
+
+# Print out the results
+print(f"Expected SARSA Mean Rewards: {mean_rewards_exsarsa}, Variance: {variance_rewards_exsarsa}")
+print(f"MC Mean Rewards: {mean_rewards_mc}, Variance: {variance_rewards_mc}")
+
+
+environment.close()
 
 
 
